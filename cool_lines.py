@@ -146,14 +146,19 @@ orange_theme= """
         background-color: #462002;
     }"""
 
+# light brown #462002
+# dark brown #220E00
+
 main_window_instance= None
 paint_on_mesh= None
 scene_lines_data= {}
 global_scene_data_obj= scene_data.GlobalSceneData()
 cool_lines_shader= None
 
-# light brown #462002
-# dark brown #220E00
+# Installing script job to refresh file on opened
+cmds.scriptJob(event=["SceneOpened", global_scene_data_obj.detectSceneChange])
+
+
 
 def detectOrCreateShader():
 
@@ -181,6 +186,17 @@ class DockableWindow(MayaQWidgetDockableMixin, QDialog):
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
         self.main_layout.addWidget(self.main_widget)
+
+        #Adding menu bar:
+        #Creating the Tool Bar:
+        menu_bar = QMenuBar(self)
+        self.main_layout.setMenuBar(menu_bar)
+        file_menu = menu_bar.addMenu("File")
+        
+        refresh_file_action = QAction("Manual Refesh", self)
+        refresh_file_action.triggered.connect(global_scene_data_obj.detectSceneChange)
+        refresh_file_action.setShortcut(QKeySequence("Alt+R"))
+        file_menu.addAction(refresh_file_action)
 
         self.setStyleSheet(orange_theme)
 
@@ -279,6 +295,7 @@ class mainWidget(QWidget):
         #Connections:
 
         global_scene_data_obj.request_ui_sync.connect(self.refreshList)
+        global_scene_data_obj.request_ui_clear.connect(self.lines_list_widget.clear)
 
         self.set_target_mesh_button.clicked.connect(self.setTargetMeshButtonClicked)
         self.create_edge_line_button.clicked.connect(self.createLineFromEdge)
@@ -287,7 +304,6 @@ class mainWidget(QWidget):
 
         self.lines_list_widget.itemClicked.connect(self.selectLineInMaya)
 
-        #Creating the preview line shader:
         self.refreshList()
 
         # extra

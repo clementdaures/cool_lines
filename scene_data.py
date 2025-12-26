@@ -9,6 +9,7 @@ from PySide2.QtCore import *
 
 class GlobalSceneData(QObject):
     request_ui_sync = Signal()
+    request_ui_clear = Signal()
 
     def __init__(self, *args, **kwargs):
         super(GlobalSceneData, self).__init__()
@@ -37,7 +38,7 @@ class GlobalSceneData(QObject):
     def createSceneDataNode(self):
         # Create Node to store data. Data will be empty at first.
         self.scene_data_node= cmds.scriptNode( st=0, bs='', n=self.scene_data_node_default_name, stp='python')
-    
+
 
     def addLineData(self, line_data):
         self.global_lines_data[line_data["name"]]= line_data
@@ -101,9 +102,21 @@ class GlobalSceneData(QObject):
             self.request_ui_sync.emit()
         else:
             print("Skipping loading, data empty !")
+            self.global_lines_data.clear()
+            self.request_ui_clear.emit()
 
 
     def rebuildData(self, scene_data):
         for current_line_name in list(scene_data.keys()):
             self.global_lines_data[current_line_name]= dict(scene_data[current_line_name])
         print('Data rebuilt successfull')
+
+
+    def detectSceneChange(self):
+
+        # A new scene has been opened..
+        if self.checkSceneDataNode():
+            pass
+        else:
+            self.global_lines_data.clear() # if create new scene while script still opened
+            self.request_ui_clear.emit()
