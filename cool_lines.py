@@ -352,6 +352,8 @@ class mainWidget(QWidget):
 
     def createLineFromEdge(self):
 
+        stroke_id= len(list(global_scene_data_obj.getGlobalLinesData().keys()))
+
         polytocurve_result = cmds.polyToCurve(form=3,degree=1)
         polytocurve_curve = polytocurve_result[0]
         polytocurve_node = polytocurve_result[1]
@@ -376,17 +378,51 @@ class mainWidget(QWidget):
         
         curve_shape = cmds.listRelatives(polytocurve_curve, s=True)[0]
         wrap_node = cmds.listConnections(curve_shape + '.create')[0]
+
+        result_mesh = cmds.listConnections( sweep_mesh_node + '.outMeshArray[0]', d=True, s=False )[0]
+        cmds.setAttr(polytocurve_curve + '.v', 0)
+
+        stroke_group= cmds.group([result_mesh, polytocurve_curve], n=f'Stroke_{stroke_id}_grp')
         
-        cmds.connectAttr(wrap_node + '.nodeState', sweep_mesh_node + '.nodeState')
-        cmds.connectAttr(taper_control_node + '.disable', wrap_node + '.nodeState')
+        # Node State Connections!!
+        # Connect vis to taper ctrl node to reverse to wrap & sweep nodestate
+        reverse_state_node= cmds.createNode('reverse')
+        cmds.connectAttr(stroke_group + '.v', taper_control_node + '.disable')
+        cmds.connectAttr(taper_control_node + '.disable', reverse_state_node + '.inputX')
+        cmds.connectAttr(reverse_state_node + '.outputX', wrap_node + '.nodeState')
+        cmds.connectAttr(reverse_state_node + '.outputX', sweep_mesh_node + '.nodeState')
 
         cmds.delete(polytocurve_node)
 
-        result_mesh = cmds.listConnections( sweep_mesh_node + '.outMeshArray[0]', d=True, s=False )[0]
-        print(result_mesh, polytocurve_curve)
-    
-        cmds.group([result_mesh, polytocurve_curve], n='StrokeBundle')
-        cmds.setAttr(polytocurve_curve + '.v', 0)
+        
+
+
+        # Formatting w stroke name
+        line_name= f"Stroke_{stroke_id}"
+        result_mesh= cmds.rename(result_mesh, f"Stroke_{stroke_id}_msh")
+        sweep_mesh_node= cmds.rename(sweep_mesh_node, f"Stroke_{stroke_id}_sweep")
+        wrap_node= cmds.rename(wrap_node, f"Stroke_{stroke_id}_wrap")
+        converted_curve_shape= cmds.rename(polytocurve_curve, f"Stroke_{stroke_id}_OGcurve")
+        taper_control_node= cmds.rename(taper_control_node, f"edit_Stroke_{stroke_id}")
+        reverse_state_node= cmds.rename(reverse_state_node, f"reverse_state_Stroke_{stroke_id}")
+
+
+        line_data= {"name": line_name,
+                    "type": "edge",
+                    "group": stroke_group,
+                    "mesh": result_mesh,
+                    "curve": converted_curve_shape,
+                    "sweep_msh_node" : sweep_mesh_node,
+                    "taper_ctrl_node": taper_control_node,
+                    "wrap_node": wrap_node,
+                    "root_convert_grp": None,
+                    "converted_curve_grp": None,
+                    "reverse_state_node": reverse_state_node
+                    }
+        
+
+
+        global_scene_data_obj.addLineData(line_data)
 
         
     def paintLineOnMesh(self):
@@ -493,30 +529,41 @@ class lineListDisplayWidget(QWidget):
         else:
             line_key= self.line_data["name"]
             self.line_data["name"]= new_name #updating the line_data
-            
-            # Formatting w stroke name
+                   
+            # Shared types data rename:
             stroke_group= cmds.rename(self.line_data["group"], f'{new_name}_grp')
             result_mesh= cmds.rename(self.line_data["mesh"], f"{new_name}_msh")
             sweep_mesh_node= cmds.rename(self.line_data["sweep_msh_node"], f"{new_name}_sweep")
             wrap_node= cmds.rename(self.line_data["wrap_node"], f"{new_name}_wrap")
-            root_converted_curve_group= cmds.rename(self.line_data["root_convert_grp"], f"{new_name}_keep_grp")
             converted_curve_shape_node= cmds.rename(self.line_data["curve"], f"{new_name}_OGcurve")
-            converted_curve_grp= cmds.rename(self.line_data["converted_curve_grp"], f"{new_name}_OGCuve_grp")
             taper_control_node= cmds.rename(self.line_data["taper_ctrl_node"], f"edit_Stroke_{new_name}")
             reverse_state_node= cmds.rename(self.line_data["reverse_state_node"], f"reverse_state_Stroke_{new_name}")
 
             new_data= {"name": new_name,
+                       "type": self.line_data.get("type"),
                         "group": stroke_group,
                         "mesh": result_mesh,
                         "curve": converted_curve_shape_node,
                         "sweep_msh_node" : sweep_mesh_node,
                         "taper_ctrl_node": taper_control_node,
                         "wrap_node": wrap_node,
-                        "root_convert_grp": root_converted_curve_group,
-                        "converted_curve_grp": converted_curve_grp,
+                        "root_convert_grp": None,
+                        "converted_curve_grp": None,
                         "reverse_state_node": reverse_state_node
                         }
 
+            # Unique type data rename:
+            if self.line_data["type"] == "paint":
+
+                root_converted_curve_group= cmds.rename(self.line_data["root_convert_grp"], f"{new_name}_keep_grp")
+                converted_curve_grp= cmds.rename(self.line_data["converted_curve_grp"], f"{new_name}_OGCuve_grp")
+
+                paint_unique_data={"converted_curve_grp": root_converted_curve_group,
+                                   "root_convert_grp": converted_curve_grp,
+                                   }
+                
+                new_data.update(paint_unique_data)
+            
             global_scene_data_obj.updateLineData(line_key, dict(new_data), update_name=True)
 
 
@@ -615,6 +662,7 @@ def executed_after_action(start_scale):
 
 
         line_data= {"name": line_name,
+                    "type": "paint",
                     "group": stroke_group,
                     "mesh": result_mesh,
                     "curve": converted_curve_shape_node,
