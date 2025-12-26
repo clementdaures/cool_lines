@@ -251,6 +251,7 @@ class mainWidget(QWidget):
         self.lines_list_widget = QListWidget(self)
         self.lines_list_widget.setFocusPolicy(Qt.NoFocus)
         self.lines_list_widget.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lines_list_widget.viewport().installEventFilter(self)
 
         self.credits_label= QLabel(self)
         self.credits_label.setText("Credits (Hover)")
@@ -291,6 +292,18 @@ class mainWidget(QWidget):
 
         # extra
         self.target_mesh=None
+
+
+    def eventFilter(self, source, event):
+        # Deselect item when nothing clicked
+        if source == self.lines_list_widget.viewport() and event.type() == QEvent.MouseButtonPress:
+            
+            item = self.lines_list_widget.itemAt(event.pos())
+            if not item:
+                self.lines_list_widget.clearSelection()
+        
+        # Always return the parent's result so we don't break default behavior
+        return super().eventFilter(source, event)
 
         
     def refreshList(self):
@@ -487,10 +500,12 @@ class lineListDisplayWidget(QWidget):
         self.main_layout.setSizeConstraint(QLayout.SetFixedSize) #Mandatory to scale correctly the widget
         self.setLayout(self.main_layout)
 
-        self.asset_name_label= QLabel(self)
         
         self.line_name_widget= CoolNameDisplay(line_data)
 
+        self.line_type_label= QLabel(self)
+        self.line_type_label.setText(self.line_data["type"])
+        self.line_type_label.setStyleSheet('''font: 75 7pt "Microsoft YaHei UI";''')
 
         # Query initial line grp vis!
         current_line_grp_vis= cmds.getAttr(self.line_data["group"] + '.v')
@@ -507,10 +522,11 @@ class lineListDisplayWidget(QWidget):
                                           bg_color= QColor("#CD6C1B"))
 
         self.main_layout.addWidget(self.line_name_widget)
+        self.main_layout.addStretch()
         self.main_layout.addWidget(self.disable_line_checkbox)
-        self.main_layout.addWidget(self.delete_button) 
+        self.main_layout.addWidget(self.delete_button)
+        self.main_layout.addWidget(self.line_type_label)
         
-
         self.setStyleSheet('''font: 75 10pt "Microsoft YaHei UI";''')
 
         # Connections:

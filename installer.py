@@ -15,4 +15,4 @@ def onMayaDroppedPythonFile(*args):
 
     #Creating shelf button:
     current_shelf_tab = cmds.tabLayout("ShelfLayout", query=True, selectTab=True)
-    cmds.shelfButton(parent=current_shelf_tab, imageOverlayLabel="Cool Lines", annotation='Launch Cool Lines :)', image1='BluePencil.png', command=shelf_payload )
+    cmds.shelfButton(parent=current_shelf_tab, imageOverlayLabel="Cool Lines", annotation='Launch Cool Lines :)', image1='paintEffectsTool.png', command=shelf_payload )
