@@ -154,6 +154,8 @@ paint_on_mesh= None
 scene_lines_data= {}
 global_scene_data_obj= scene_data.GlobalSceneData()
 cool_lines_shader= None
+line_subdiv_offset= 0.1
+line_resolution= 10
 
 # Installing script job to refresh file on opened
 scene_event_catcher_num= cmds.scriptJob(event=["SceneOpened", global_scene_data_obj.detectSceneChange])
@@ -169,6 +171,8 @@ def detectOrCreateShader():
     else:
         print('Preview Shader for outlines not found... Creating one.')
         cool_lines_shader= cmds.createNode('surfaceShader', name="CoolLinesShader")
+    
+    return cool_lines_shader
 
 
 class DockableWindow(MayaQWidgetDockableMixin, QDialog):
@@ -195,7 +199,7 @@ class DockableWindow(MayaQWidgetDockableMixin, QDialog):
         bake_menu = menu_bar.addMenu("Bake")
         
         refresh_file_action = QAction("Manual Refesh", self)
-        refresh_file_action.triggered.connect(global_scene_data_obj.detectSceneChange)
+        refresh_file_action.triggered.connect(self.fileChange)
         refresh_file_action.setShortcut(QKeySequence("Alt+R"))
         file_menu.addAction(refresh_file_action)
 
@@ -215,6 +219,10 @@ class DockableWindow(MayaQWidgetDockableMixin, QDialog):
         print(f"Clearing scene event catcher: {scene_event_catcher_num}")
         cmds.scriptJob(kill=scene_event_catcher_num, force=True)
         super(DockableWindow, self).dockCloseEventTriggered()
+
+
+    def fileChange(self):
+        global_scene_data_obj.detectSceneChange()
 
 
 
@@ -276,6 +284,23 @@ class mainWidget(QWidget):
         self.default_scale_lineedit.setValidator(validator)
         self.default_scale_lineedit.setText('0.100')
 
+        self.subdived_target_offset_label= QLabel(self)
+        self.subdived_target_offset_label.setText("Subdiv Offset")
+        self.subdived_target_offset_label.setToolTip("When drawing on subdived mesh, the line clips inside. You can adjust it here.")
+
+        self.subdived_target_offset_lineedit = QLineEdit(self)
+        validator = QRegExpValidator(QRegExp(r'[0-9]+.[0-9][0-9][0-9][0-9]'))
+        self.subdived_target_offset_lineedit.setValidator(validator)
+        self.subdived_target_offset_lineedit.setText('0.1')
+
+        self.line_resolution_label= QLabel(self)
+        self.line_resolution_label.setText("Line Resolution")
+        self.line_resolution_label.setToolTip("Crank up the resolution for complex lines. Default is 10.")
+
+        self.line_resolution_lineedit = QLineEdit(self)
+        validator = QRegExpValidator(QRegExp(r'[0-9][0-9][0-9][0-9][0-9]'))
+        self.line_resolution_lineedit.setValidator(validator)
+        self.line_resolution_lineedit.setText('10')
 
         self.scene_content_label= QLabel(self)
         self.scene_content_label.setText("Scene Content")
@@ -301,6 +326,12 @@ class mainWidget(QWidget):
         self.main_layout.addWidget(self.default_scale_title_label)
         self.main_layout.addWidget(self.default_scale_lineedit)
 
+        self.main_layout.addWidget(self.subdived_target_offset_label)
+        self.main_layout.addWidget(self.subdived_target_offset_lineedit)
+        
+        self.main_layout.addWidget(self.line_resolution_label)
+        self.main_layout.addWidget(self.line_resolution_lineedit)
+
         self.main_layout.addWidget(self.scene_content_label)
         self.main_layout.addWidget(self.lines_list_widget)
 
@@ -319,6 +350,10 @@ class mainWidget(QWidget):
         self.assign_shader_button.clicked.connect(self.assignPreviewShader)
 
         self.lines_list_widget.itemClicked.connect(self.selectLineInMaya)
+
+        self.subdived_target_offset_lineedit.textChanged.connect(self.changeLineSubdivOffset)
+        self.line_resolution_lineedit.textChanged.connect(self.changeLineResolution)
+
 
         self.refreshList()
 
@@ -367,8 +402,15 @@ class mainWidget(QWidget):
         self.deleteLineInMaya(current_widget.line_data)
 
 
+    def changeLineSubdivOffset(self):
+        global line_subdiv_offset
+        line_subdiv_offset= float(self.subdived_target_offset_lineedit.text())
 
     
+    def changeLineResolution(self):
+        global line_resolution
+        line_resolution= int(self.line_resolution_lineedit.text())
+
     # Maya Interactions:
     def deleteLineInMaya(self, line_data):
         cmds.delete(line_data["group"])
@@ -510,13 +552,8 @@ class mainWidget(QWidget):
         
         if not maya_selection:
             cmds.select(self.lines_list_widget.currentItem().data(Qt.UserRole)["mesh"])
-        
-        if cool_lines_shader:
-            cmds.hyperShade(assign= cool_lines_shader)
-        else:
-            detectOrCreateShader()
-            cmds.hyperShade(assign= cool_lines_shader)
 
+        cmds.hyperShade(assign= detectOrCreateShader())
 
 
 class lineListDisplayWidget(QWidget):
@@ -627,7 +664,7 @@ class lineListDisplayWidget(QWidget):
 
 
 def executed_after_action(start_scale):
-
+    
     cmds.headsUpMessage( 'Please Wait!', time=3.0 )
     cmds.setToolTo( 'moveSuperContext' )
     shape = cmds.listRelatives( cmds.ls(sl=True), fullPath=False, shapes=True)
@@ -644,7 +681,7 @@ def executed_after_action(start_scale):
 
 
         cmds.select(converted_curve_shape_node)
-        mel.eval('rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s 10 -d 1 -tol 0.0001;')
+        mel.eval(f'rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s {line_resolution} -d 1 -tol 0.0001;')
         # Paint on mesh subdiv lvl:
         paint_on_mesh_subdiv_lvl=cmds.getAttr(cmds.listRelatives(paint_on_mesh, s=True)[0] + '.displaySmoothMesh')
         shrinkWrapItem(target_msh= paint_on_mesh, wrapped_item= converted_curve_shape_node, target_subdiv_lvl= paint_on_mesh_subdiv_lvl)
@@ -730,7 +767,10 @@ def executed_after_action(start_scale):
 
 
         global_scene_data_obj.addLineData(line_data)
-
+        cmds.select(result_mesh, r=True)
+        cmds.hyperShade(assign= detectOrCreateShader())
+        cmds.select(cl=True)
+        
 
 def createTaperController(sweep_mesh_node, line_type, paint_mode = False, start_scale_value = 1):
         
@@ -836,7 +876,7 @@ def shrinkWrapItem(target_msh, wrapped_item, target_subdiv_lvl= 0):
         return
     
     shrinkwrap_deformer = cmds.deformer(wrapped_item, type='shrinkWrap')[0] #Applying the shrinkwrap on the object
-
+    
     print(shrinkwrap_deformer)
     #Creating the necessary connections:
     target_msh_shape = cmds.listRelatives(target_msh, s=True)[0] #Gathering the sphere's shape
@@ -855,6 +895,7 @@ def shrinkWrapItem(target_msh, wrapped_item, target_subdiv_lvl= 0):
     #Setting attributes:
     cmds.setAttr(shrinkwrap_deformer + '.prj', 4)
     cmds.setAttr(shrinkwrap_deformer + '.bi', 1)
+    cmds.setAttr(shrinkwrap_deformer + '.offset', line_subdiv_offset)
     cmds.setAttr(shrinkwrap_deformer + '.targetSmoothLevel', 3) # 1 start index for this attr
 
     cmds.select(wrapped_item, r=True)
@@ -895,6 +936,6 @@ def bakeAllLines():
 
 
 if __name__ == '__main__':
-
+    detectOrCreateShader()
     main_window_instance= DockableWindow()
     main_window_instance.show(dockable=True)
