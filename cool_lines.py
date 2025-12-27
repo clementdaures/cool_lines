@@ -301,7 +301,7 @@ class mainWidget(QWidget):
         self.line_resolution_lineedit = QLineEdit(self)
         validator = QRegExpValidator(QRegExp(r'[0-9][0-9][0-9][0-9][0-9]'))
         self.line_resolution_lineedit.setValidator(validator)
-        self.line_resolution_lineedit.setText('10')
+        self.line_resolution_lineedit.setText('5')
 
         self.scene_content_label= QLabel(self)
         self.scene_content_label.setText("Scene Content")
