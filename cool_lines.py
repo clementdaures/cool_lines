@@ -415,17 +415,24 @@ class mainWidget(QWidget):
 
     def changeLineDefaultScale(self):
         global line_default_scale
-        line_default_scale= float(self.default_scale_lineedit.text())
+        user_input= self.default_scale_lineedit.text()
+        if user_input == '': user_input= 0.01
+        line_default_scale= float(user_input)
 
 
     def changeLineSubdivOffset(self):
         global line_subdiv_offset
-        line_subdiv_offset= float(self.subdived_target_offset_lineedit.text())
+        user_input= self.subdived_target_offset_lineedit.text()
+        if user_input == '': user_input= 0.01
+        line_subdiv_offset= float(user_input)
 
     
     def changeLineResolution(self):
         global line_resolution
-        line_resolution= int(self.line_resolution_lineedit.text())
+        user_input= self.line_resolution_lineedit.text()
+        if user_input == '': user_input= 5
+        line_resolution= int(user_input)
+
 
     # Maya Interactions:
     def deleteLineInMaya(self, line_data):
