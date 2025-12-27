@@ -154,6 +154,7 @@ paint_on_mesh= None
 scene_lines_data= {}
 global_scene_data_obj= scene_data.GlobalSceneData()
 cool_lines_shader= None
+line_default_scale= 0.1
 line_subdiv_offset= 0.1
 line_resolution= 10
 
@@ -295,7 +296,7 @@ class mainWidget(QWidget):
 
         self.line_resolution_label= QLabel(self)
         self.line_resolution_label.setText("Line Resolution")
-        self.line_resolution_label.setToolTip("Crank up the resolution for complex lines. Default is 10.")
+        self.line_resolution_label.setToolTip("1 is full accuracy (too much). Default is 5. The more you add, the lower the resolution gets.")
 
         self.line_resolution_lineedit = QLineEdit(self)
         validator = QRegExpValidator(QRegExp(r'[0-9][0-9][0-9][0-9][0-9]'))
@@ -351,6 +352,7 @@ class mainWidget(QWidget):
 
         self.lines_list_widget.itemClicked.connect(self.selectLineInMaya)
 
+        self.default_scale_lineedit.textChanged.connect(self.changeLineDefaultScale)
         self.subdived_target_offset_lineedit.textChanged.connect(self.changeLineSubdivOffset)
         self.line_resolution_lineedit.textChanged.connect(self.changeLineResolution)
 
@@ -411,6 +413,11 @@ class mainWidget(QWidget):
         self.deleteLineInMaya(current_widget.line_data)
 
 
+    def changeLineDefaultScale(self):
+        global line_default_scale
+        line_default_scale= float(self.default_scale_lineedit.text())
+
+
     def changeLineSubdivOffset(self):
         global line_subdiv_offset
         line_subdiv_offset= float(self.subdived_target_offset_lineedit.text())
@@ -448,6 +455,9 @@ class mainWidget(QWidget):
 
     def createLineFromEdge(self):
 
+        # Getting Line default scale if editing was not done:
+        self.changeLineDefaultScale()
+
         # Checking if selection is on paint on mesh:
         user_selection= cmds.ls(sl=True)
 
@@ -482,7 +492,7 @@ class mainWidget(QWidget):
 
         #Finding the sweep mesh node:
         sweep_mesh_node = cmds.listConnections( polytocurve_curve + '.worldSpace[0]', d=True, s=False )[0]
-        taper_control_node = createTaperController(sweep_mesh_node, line_type="edge", start_scale_value= float(self.default_scale_lineedit.text()))
+        taper_control_node = createTaperController(sweep_mesh_node, line_type="edge", start_scale_value= line_default_scale)
 
         cmds.addAttr(taper_control_node, at='enum', k=True, en = '______________', shortName='OPTIMIZATION', h=False)
         cmds.setAttr(taper_control_node + '.OPTIMIZATION', lock=True)
@@ -545,10 +555,11 @@ class mainWidget(QWidget):
         cmds.select(result_mesh, r=True)
         cmds.hyperShade(assign= detectOrCreateShader())
         cmds.select(cl=True)
+        cmds.flushUndo()
 
         
     def paintLineOnMesh(self):
-        
+
         global paint_on_mesh
         if not paint_on_mesh:
             QMessageBox.warning(self, "Can't paint :(", "Please set a target mesh to paint on it !")
@@ -566,7 +577,13 @@ class mainWidget(QWidget):
         cmds.setToolTo("paintMesh")
         # global paint_on_mesh
         # paint_on_mesh = cmds.ls(sl=True)[0]
-        cmds.scriptJob(runOnce=True, event=("SelectionChanged", drawLine({float(self.default_scale_lineedit.text())})))
+
+        # Getting Line default scale if editing was not done:
+        self.changeLineDefaultScale()
+        self.changeLineResolution()
+        self.changeLineSubdivOffset()
+
+        cmds.scriptJob(runOnce=True, event=("SelectionChanged", drawLine))
 
 
     def assignPreviewShader(self):
@@ -698,38 +715,50 @@ class lineListDisplayWidget(QWidget):
 
 
 
-def drawLine(start_scale):
-    
-    cmds.headsUpMessage( 'Please Wait!', time=3.0 )
+def drawLine():
+
     cmds.setToolTo( 'moveSuperContext' )
 
-    shape = cmds.listRelatives( cmds.ls(sl=True), fullPath=False, shapes=True)
+    shape = cmds.listRelatives( cmds.ls(sl=True), fullPath=False, shapes=True)[0]
 
     if not shape:
         print("Paint operation aborted...")
         return
 
     if cmds.objectType(shape) == 'stroke':
+
+        print(shape)
+        stroke_shape = shape
+
+        # Setting the smooth to max in the stroke shape
+        cmds.setAttr(stroke_shape + '.smoothing', 100)
+
+
         print ("Stroke Done! Converting...")
         mel.eval("PaintEffectsToCurve;")
 
-        print(shape)
-        stroke_shape = shape[0]
+        
+
+        global line_default_scale
+        start_scale= line_default_scale
         
         #Getting the converted curve:
-        converted_curve_shape_node = cmds.listConnections(stroke_shape + '.outMainCurves[0]', d=True, s=False )[0]
+        converted_curve_transform = cmds.listConnections(stroke_shape + '.outMainCurves[0]', d=True, s=False )[0]
+        converted_curve_shape= cmds.listRelatives(converted_curve_transform, s=True)[0]
 
+        # Query spans amount to perform reduction based on user curve res
+        converted_curve_spans= cmds.getAttr(converted_curve_shape + '.s')
 
-        cmds.select(converted_curve_shape_node)
-        mel.eval(f'rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s {line_resolution} -d 1 -tol 0.0001;')
+        cmds.select(converted_curve_transform)
+        mel.eval(f'rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s {int(converted_curve_spans/line_resolution)} -d 1 -tol 0.0001;')
         # Paint on mesh subdiv lvl:
         paint_on_mesh_subdiv_lvl=cmds.getAttr(cmds.listRelatives(paint_on_mesh, s=True)[0] + '.displaySmoothMesh')
-        shrinkWrapItem(target_msh= paint_on_mesh, wrapped_item= converted_curve_shape_node, target_subdiv_lvl= paint_on_mesh_subdiv_lvl)
+        shrinkWrapItem(target_msh= paint_on_mesh, wrapped_item= converted_curve_transform, target_subdiv_lvl= paint_on_mesh_subdiv_lvl)
         
         mel.eval('performSweepMesh 0;')
 
 
-        sweep_mesh_node = cmds.listConnections( converted_curve_shape_node + '.worldSpace[0]', d=True, s=False)[0]
+        sweep_mesh_node = cmds.listConnections( converted_curve_transform + '.worldSpace[0]', d=True, s=False)[0]
         taper_control_node = createTaperController(sweep_mesh_node, line_type="paint", paint_mode=True, start_scale_value=start_scale)
 
         cmds.addAttr(at='enum', k=True, en = '______________', shortName='OPTIMIZATION', h=False)
@@ -745,7 +774,7 @@ def drawLine(start_scale):
 
         stroke_id= len(list(global_scene_data_obj.getGlobalLinesData().keys()))
 
-        first_group = cmds.listRelatives(converted_curve_shape_node, p=True)[0]
+        first_group = cmds.listRelatives(converted_curve_transform, p=True)[0]
         root_converted_curve_group = cmds.listRelatives(first_group, p=True)[0]
 
         stroke_transform = cmds.listRelatives(stroke_shape, p=True)[0]
@@ -761,10 +790,10 @@ def drawLine(start_scale):
 
 
         #Wrapping:
-        cmds.select([converted_curve_shape_node, paint_on_mesh], r=True)
+        cmds.select([converted_curve_transform, paint_on_mesh], r=True)
         print(cmds.CreateWrap())
 
-        curve_shape = cmds.listRelatives(converted_curve_shape_node, s=True)[0]
+        curve_shape = cmds.listRelatives(converted_curve_transform, s=True)[0]
         wrap_node = cmds.listConnections(curve_shape + '.create')[0]
         
 
@@ -776,7 +805,7 @@ def drawLine(start_scale):
         cmds.connectAttr(reverse_state_node + '.outputX', wrap_node + '.nodeState')
         cmds.connectAttr(reverse_state_node + '.outputX', sweep_mesh_node + '.nodeState')
 
-        converted_curve_grp= cmds.listRelatives(converted_curve_shape_node, p=True)[0]
+        converted_curve_grp= cmds.listRelatives(converted_curve_transform, p=True)[0]
         cmds.select(cl=True)
 
         # Formatting w stroke name
@@ -785,7 +814,7 @@ def drawLine(start_scale):
         sweep_mesh_node= cmds.rename(sweep_mesh_node, f"Stroke_{stroke_id}_sweep")
         wrap_node= cmds.rename(wrap_node, f"Stroke_{stroke_id}_wrap")
         root_converted_curve_group= cmds.rename(root_converted_curve_group, f"Stroke_{stroke_id}_keep_grp")
-        converted_curve_shape_node= cmds.rename(converted_curve_shape_node, f"Stroke_{stroke_id}_OGcurve")
+        converted_curve_transform= cmds.rename(converted_curve_transform, f"Stroke_{stroke_id}_OGcurve")
         converted_curve_grp= cmds.rename(converted_curve_grp, f"Stroke_{stroke_id}_OGCuve_grp")
         taper_control_node= cmds.rename(taper_control_node, f"edit_Stroke_{stroke_id}")
         reverse_state_node= cmds.rename(reverse_state_node, f"reverse_state_Stroke_{stroke_id}")
@@ -795,7 +824,7 @@ def drawLine(start_scale):
                     "type": "paint",
                     "group": stroke_group,
                     "mesh": result_mesh,
-                    "curve": converted_curve_shape_node,
+                    "curve": converted_curve_transform,
                     "sweep_msh_node" : sweep_mesh_node,
                     "taper_ctrl_node": taper_control_node,
                     "wrap_node": wrap_node,
@@ -812,6 +841,7 @@ def drawLine(start_scale):
         cmds.select(result_mesh, r=True)
         cmds.hyperShade(assign= detectOrCreateShader())
         cmds.select(cl=True)
+        cmds.flushUndo()
 
 
 def createTaperController(sweep_mesh_node, line_type, paint_mode = False, start_scale_value = 1):
