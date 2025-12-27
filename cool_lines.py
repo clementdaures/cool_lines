@@ -170,7 +170,7 @@ def detectOrCreateShader():
 
     else:
         print('Preview Shader for outlines not found... Creating one.')
-        cool_lines_shader= cmds.createNode('surfaceShader', name="CoolLinesShader")
+        cool_lines_shader= cmds.createNode('surfaceShader', name="CoolLinesShader", ss=True)
     
     return cool_lines_shader
 
@@ -375,6 +375,11 @@ class mainWidget(QWidget):
         
     def refreshList(self):
         
+        # Scroll preservation store scroll value
+        list_scrollbar = self.lines_list_widget.verticalScrollBar()
+        current_scroll_value = list_scrollbar.value()
+
+        
         self.lines_list_widget.clear()
         global_scene_data= global_scene_data_obj.getGlobalLinesData()
 
@@ -392,8 +397,12 @@ class mainWidget(QWidget):
             self.lines_list_widget.addItem(current_line_item)
             self.lines_list_widget.setItemWidget(current_line_item, current_line_item_widget)
             current_line_item_widget.delete_line_item.connect(self.deleteLineItem)
-            
+        
+
+        list_scrollbar.setValue(current_scroll_value) # Restore scroll value
         return
+    
+        
 
 
     def deleteLineItem(self, current_widget):
@@ -438,6 +447,27 @@ class mainWidget(QWidget):
 
 
     def createLineFromEdge(self):
+
+        # Checking if selection is on paint on mesh:
+        user_selection= cmds.ls(sl=True)
+
+        if not user_selection:
+            QMessageBox.warning(self, "Can't paint :(", "Please select edges of the target mesh !")
+            return
+
+        if not paint_on_mesh:
+            QMessageBox.warning(self, "Can't paint :(", "Please provide a target mesh !")
+            return
+
+        if '.' in paint_on_mesh:
+            QMessageBox.warning(self, "Can't paint :(", "Please provide a valid target mesh, not a component !")
+            return
+
+        if paint_on_mesh in user_selection[0]:
+            pass
+        else:
+            QMessageBox.warning(self, "Can't paint :(", "The line you selected is not on the target mesh !")
+            return
 
         stroke_id= len(list(global_scene_data_obj.getGlobalLinesData().keys()))
 
@@ -511,6 +541,11 @@ class mainWidget(QWidget):
 
         global_scene_data_obj.addLineData(line_data)
 
+        #Automatic shader assignation :
+        cmds.select(result_mesh, r=True)
+        cmds.hyperShade(assign= detectOrCreateShader())
+        cmds.select(cl=True)
+
         
     def paintLineOnMesh(self):
         
@@ -531,7 +566,7 @@ class mainWidget(QWidget):
         cmds.setToolTo("paintMesh")
         # global paint_on_mesh
         # paint_on_mesh = cmds.ls(sl=True)[0]
-        cmds.scriptJob(runOnce=True, event=("SelectionChanged", f"executed_after_action({float(self.default_scale_lineedit.text())})"))
+        cmds.scriptJob(runOnce=True, event=("SelectionChanged", drawLine({float(self.default_scale_lineedit.text())})))
 
 
     def assignPreviewShader(self):
@@ -663,11 +698,16 @@ class lineListDisplayWidget(QWidget):
 
 
 
-def executed_after_action(start_scale):
+def drawLine(start_scale):
     
     cmds.headsUpMessage( 'Please Wait!', time=3.0 )
     cmds.setToolTo( 'moveSuperContext' )
+
     shape = cmds.listRelatives( cmds.ls(sl=True), fullPath=False, shapes=True)
+
+    if not shape:
+        print("Paint operation aborted...")
+        return
 
     if cmds.objectType(shape) == 'stroke':
         print ("Stroke Done! Converting...")
@@ -689,7 +729,7 @@ def executed_after_action(start_scale):
         mel.eval('performSweepMesh 0;')
 
 
-        sweep_mesh_node = cmds.listConnections( converted_curve_shape_node + '.worldSpace[0]', d=True, s=False )[0]
+        sweep_mesh_node = cmds.listConnections( converted_curve_shape_node + '.worldSpace[0]', d=True, s=False)[0]
         taper_control_node = createTaperController(sweep_mesh_node, line_type="paint", paint_mode=True, start_scale_value=start_scale)
 
         cmds.addAttr(at='enum', k=True, en = '______________', shortName='OPTIMIZATION', h=False)
@@ -730,7 +770,7 @@ def executed_after_action(start_scale):
 
         # Node State Connections!!
         # Connect vis to taper ctrl node to reverse to wrap & sweep nodestate
-        reverse_state_node= cmds.createNode('reverse')
+        reverse_state_node= cmds.createNode('reverse', ss=True)
         cmds.connectAttr(stroke_group + '.v', taper_control_node + '.disable')
         cmds.connectAttr(taper_control_node + '.disable', reverse_state_node + '.inputX')
         cmds.connectAttr(reverse_state_node + '.outputX', wrap_node + '.nodeState')
@@ -767,10 +807,12 @@ def executed_after_action(start_scale):
 
 
         global_scene_data_obj.addLineData(line_data)
+
+        #Automatic shader assignation :
         cmds.select(result_mesh, r=True)
         cmds.hyperShade(assign= detectOrCreateShader())
         cmds.select(cl=True)
-        
+
 
 def createTaperController(sweep_mesh_node, line_type, paint_mode = False, start_scale_value = 1):
         
