@@ -56,6 +56,12 @@ class GlobalSceneData(QObject):
         self.request_ui_sync.emit()
 
 
+    def clearGlobalLinesData(self):
+        self.global_lines_data.clear()
+        self.saveSceneData()
+        self.request_ui_clear.emit()
+
+
     def updateLineData(self, line_key, new_line_data, update_name= False):
 
         print('*********')
@@ -107,9 +113,17 @@ class GlobalSceneData(QObject):
 
 
     def rebuildData(self, scene_data):
+
         for current_line_name in list(scene_data.keys()):
-            self.global_lines_data[current_line_name]= dict(scene_data[current_line_name])
-        print('Data rebuilt successfull')
+            # Safe data rebuilding:
+            if cmds.objExists(scene_data[current_line_name]["group"]):
+                self.global_lines_data[current_line_name]= dict(scene_data[current_line_name])
+            else:
+                print(f"Cannot find {current_line_name}'s Data ! Removing...")
+
+
+        print('Data rebuilt successfully')
+        self.saveSceneData()
 
 
     def detectSceneChange(self):

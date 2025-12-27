@@ -156,8 +156,8 @@ global_scene_data_obj= scene_data.GlobalSceneData()
 cool_lines_shader= None
 
 # Installing script job to refresh file on opened
-cmds.scriptJob(event=["SceneOpened", global_scene_data_obj.detectSceneChange])
-
+scene_event_catcher_num= cmds.scriptJob(event=["SceneOpened", global_scene_data_obj.detectSceneChange])
+print(scene_event_catcher_num)
 
 
 def detectOrCreateShader():
@@ -192,13 +192,29 @@ class DockableWindow(MayaQWidgetDockableMixin, QDialog):
         menu_bar = QMenuBar(self)
         self.main_layout.setMenuBar(menu_bar)
         file_menu = menu_bar.addMenu("File")
+        bake_menu = menu_bar.addMenu("Bake")
         
         refresh_file_action = QAction("Manual Refesh", self)
         refresh_file_action.triggered.connect(global_scene_data_obj.detectSceneChange)
         refresh_file_action.setShortcut(QKeySequence("Alt+R"))
         file_menu.addAction(refresh_file_action)
 
+        bake_line_action = QAction("Bake All Lines", self)
+        bake_line_action.triggered.connect(bakeAllLines)
+        bake_menu.addAction(bake_line_action)
+
         self.setStyleSheet(orange_theme)
+
+    def closeEvent(self, event: QCloseEvent):
+        print(f"Clearing scene event catcher: {scene_event_catcher_num}")
+        cmds.scriptJob(kill=scene_event_catcher_num, force=True)
+        event.accept()
+
+    
+    def dockCloseEventTriggered(self):
+        print(f"Clearing scene event catcher: {scene_event_catcher_num}")
+        cmds.scriptJob(kill=scene_event_catcher_num, force=True)
+        super(DockableWindow, self).dockCloseEventTriggered()
 
 
 
@@ -394,7 +410,7 @@ class mainWidget(QWidget):
 
         #Finding the sweep mesh node:
         sweep_mesh_node = cmds.listConnections( polytocurve_curve + '.worldSpace[0]', d=True, s=False )[0]
-        taper_control_node = createTaperController(sweep_mesh_node, start_scale_value= float(self.default_scale_lineedit.text()))
+        taper_control_node = createTaperController(sweep_mesh_node, line_type="edge", start_scale_value= float(self.default_scale_lineedit.text()))
 
         cmds.addAttr(taper_control_node, at='enum', k=True, en = '______________', shortName='OPTIMIZATION', h=False)
         cmds.setAttr(taper_control_node + '.OPTIMIZATION', lock=True)
@@ -628,11 +644,16 @@ def executed_after_action(start_scale):
 
 
         cmds.select(converted_curve_shape_node)
-        mel.eval('rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s 10 -d 3 -tol 0.0001;')
-        mel.eval('performSweepMesh 0;')
+        mel.eval('rebuildCurve -ch 1 -rpo 1 -rt 0 -end 1 -kr 0 -kcp 0 -kep 1 -kt 0 -s 10 -d 1 -tol 0.0001;')
+        # Paint on mesh subdiv lvl:
+        paint_on_mesh_subdiv_lvl=cmds.getAttr(cmds.listRelatives(paint_on_mesh, s=True)[0] + '.displaySmoothMesh')
+        shrinkWrapItem(target_msh= paint_on_mesh, wrapped_item= converted_curve_shape_node, target_subdiv_lvl= paint_on_mesh_subdiv_lvl)
         
+        mel.eval('performSweepMesh 0;')
+
+
         sweep_mesh_node = cmds.listConnections( converted_curve_shape_node + '.worldSpace[0]', d=True, s=False )[0]
-        taper_control_node = createTaperController(sweep_mesh_node, paint_mode=True, start_scale_value=start_scale)
+        taper_control_node = createTaperController(sweep_mesh_node, line_type="paint", paint_mode=True, start_scale_value=start_scale)
 
         cmds.addAttr(at='enum', k=True, en = '______________', shortName='OPTIMIZATION', h=False)
         cmds.setAttr(taper_control_node + '.OPTIMIZATION', lock=True)
@@ -711,7 +732,7 @@ def executed_after_action(start_scale):
         global_scene_data_obj.addLineData(line_data)
 
 
-def createTaperController(sweep_mesh_node, paint_mode = False, start_scale_value = 1):
+def createTaperController(sweep_mesh_node, line_type, paint_mode = False, start_scale_value = 1):
         
     #Create Default taper curve:
     taper_control_node = cmds.createNode('network', n=f'{sweep_mesh_node}_taper_control')
@@ -723,16 +744,26 @@ def createTaperController(sweep_mesh_node, paint_mode = False, start_scale_value
     cmds.addAttr(at='long', k=True, shortName='rotate_profile')
     cmds.setAttr(taper_control_node + '.rotate_profile', 0)
 
-    cmds.addAttr(at='long', k=True, shortName='resolution')
+    cmds.addAttr(at='long', k=True, shortName='resolution', min=1)
     cmds.setAttr(taper_control_node + '.resolution', 4)
 
-    cmds.setAttr(sweep_mesh_node + '.interpolationMode', 1)
+    cmds.addAttr(at='long', k=True, shortName='precision')
+    cmds.addAttr(at='bool', k=True, shortName='optimize_precision')
 
-    cmds.addAttr(at='long', k=True, shortName='steps')
-    cmds.setAttr(taper_control_node + '.steps', 15)
-    
-    cmds.connectAttr(taper_control_node + '.steps', sweep_mesh_node + '.interpolationSteps')
-    
+    if line_type== "paint":
+        cmds.setAttr(sweep_mesh_node + '.interpolationMode', 0)
+        cmds.setAttr(taper_control_node + '.precision', 100)
+        default_interpolation_precision= 100
+        
+    elif line_type== "edge":
+        cmds.setAttr(sweep_mesh_node + '.interpolationMode', 0)
+        default_interpolation_precision= 75
+       
+    cmds.setAttr(taper_control_node + '.precision', default_interpolation_precision)
+    cmds.setAttr(taper_control_node + '.optimize_precision', 1)
+
+    cmds.connectAttr(taper_control_node + '.precision', sweep_mesh_node + '.interpolationPrecision')
+    cmds.connectAttr(taper_control_node + '.optimize_precision', sweep_mesh_node + '.interpolationOptimize')
 
     cmds.addAttr(at='enum', k=True, en = '______________', shortName='POINTS', h=False)
     cmds.setAttr(taper_control_node + '.POINTS', lock=True)
@@ -790,17 +821,77 @@ def createTaperController(sweep_mesh_node, paint_mode = False, start_scale_value
     cmds.connectAttr(taper_control_node + '.point3_interp', sweep_mesh_node + '.taperCurve[4].taperCurve_Interp')
     cmds.connectAttr(taper_control_node + '.point3_value', sweep_mesh_node + '.taperCurve[4].taperCurve_FloatValue')
 
-    #Set mesh optimization for the sweep mesh :
-    if paint_mode:
-        cmds.setAttr(sweep_mesh_node + '.interpolationOptimize', 0)
-    else:
-        cmds.setAttr(sweep_mesh_node + '.interpolationOptimize', 1)
 
     #Setting the start scale value :
     cmds.setAttr(taper_control_node + '.scale_profile', start_scale_value)
 
     return taper_control_node
 
+
+def shrinkWrapItem(target_msh, wrapped_item, target_subdiv_lvl= 0):
+    
+    if target_subdiv_lvl > 0:
+        pass
+    else:
+        return
+    
+    shrinkwrap_deformer = cmds.deformer(wrapped_item, type='shrinkWrap')[0] #Applying the shrinkwrap on the object
+
+    print(shrinkwrap_deformer)
+    #Creating the necessary connections:
+    target_msh_shape = cmds.listRelatives(target_msh, s=True)[0] #Gathering the sphere's shape
+
+    #cmds.connectAttr(sphere_geo_shape + '.', shrinkwrap_deformer + '.')
+    cmds.connectAttr(target_msh_shape + '.boundaryRule', shrinkwrap_deformer + '.boundaryRule')
+    cmds.connectAttr(target_msh_shape + '.continuity', shrinkwrap_deformer + '.continuity')
+    cmds.connectAttr(target_msh_shape + '.keepBorder', shrinkwrap_deformer + '.keepBorder')
+    cmds.connectAttr(target_msh_shape + '.keepHardEdge', shrinkwrap_deformer + '.keepHardEdge')
+    cmds.connectAttr(target_msh_shape + '.keepMapBorders', shrinkwrap_deformer + '.keepMapBorders')
+    #cmds.connectAttr(sphere_geo_shape + '.propagateHardness', shrinkwrap_deformer + '.propagateHardness')
+    cmds.connectAttr(target_msh_shape + '.smoothUVs', shrinkwrap_deformer + '.smoothUVs')
+    cmds.connectAttr(target_msh_shape + '.worldMesh[0]', shrinkwrap_deformer + '.targetGeom')
+
+
+    #Setting attributes:
+    cmds.setAttr(shrinkwrap_deformer + '.prj', 4)
+    cmds.setAttr(shrinkwrap_deformer + '.bi', 1)
+    cmds.setAttr(shrinkwrap_deformer + '.targetSmoothLevel', 3) # 1 start index for this attr
+
+    cmds.select(wrapped_item, r=True)
+    mel.eval("DeleteHistory;")
+    
+
+def bakeAllLines():
+    global_line_data= global_scene_data_obj.getGlobalLinesData()
+    cmds.select(cl=True)
+
+    lines_meshes_list= []
+    lines_grps_list= []
+    # Select All
+    for current_line_name in list(global_line_data.keys()):
+        current_line_data= global_line_data[current_line_name]
+        lines_meshes_list.append(current_line_data["mesh"])
+        lines_grps_list.append(current_line_data["group"])
+
+
+    if cmds.objExists("_BakedLines_grp"):
+        bake_grp= "_BakedLines_grp"
+    else:
+        bake_grp= cmds.group(em=True, n="_BakedLines_grp")
+
+    cmds.select(cl=True)
+    cmds.select(lines_meshes_list, r=True)
+    mel.eval("DeleteHistory;")
+
+    cmds.parent(lines_meshes_list, bake_grp)
+    cmds.delete(lines_grps_list)
+
+    for current_mesh in lines_meshes_list: 
+        cmds.rename(current_mesh, f"baked_{current_mesh}") # Prevent name dupes
+
+
+    global_scene_data_obj.clearGlobalLinesData()
+    
 
 
 if __name__ == '__main__':
