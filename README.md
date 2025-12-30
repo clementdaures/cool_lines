@@ -10,7 +10,7 @@ State: Experimental / Early Release
 
 ---
 
-📖 **About**  
+**About**  
 Cool Lines is an intuitive tool for creating and managing stylized lines directly in Maya.  
 It allows artists to paint lines on meshes, generate lines from edges, assign preview shaders, and bake lines into the scene.  
 
@@ -26,17 +26,17 @@ Cool Lines is fully built using PySide2/PySide6, depending on your Maya version,
 
 ---
 
-⚙️ **Installation**  
+**Installation**  
 1. Open Maya.  
 2. Drag and drop `installer.py` into the Maya viewport.  
 3. Restart Maya.
 ---
 
-📌 **Compatibility**  
+**Compatibility**  
 
 | Maya Version | Qt Version      | Compatible |
 |--------------|----------------|------------|
-| 2025+        | PySide6 / Qt6  | ✅ Yes      |
-| 2023–2024    | PySide2 / Qt5  | ✅ Yes      |
+| 2025+        | PySide6 / Qt6  | Yes      |
+| 2023–2024    | PySide2 / Qt5  | Yes      |
 
 ---
